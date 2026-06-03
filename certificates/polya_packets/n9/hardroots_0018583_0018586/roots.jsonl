@@ -1,0 +1,2 @@
+{"expected_lexicographic_perm":[4,6,7,8,2,1,5,3],"lexicographic_perm_match":true,"n":9,"perm":[4,6,7,8,2,1,5,3],"root_id":"root_0018583","root_index":18583,"source_batch":"batch_0018560_0018624","source_pullback_hash":"6c793fb78d468e08d083aa2dda5386f8b03dc29fcbbcfe9b3db5ab876592a67d"}
+{"expected_lexicographic_perm":[4,6,7,8,2,5,1,3],"lexicographic_perm_match":true,"n":9,"perm":[4,6,7,8,2,5,1,3],"root_id":"root_0018586","root_index":18586,"source_batch":"batch_0018560_0018624","source_pullback_hash":"794fd9f282e19b1cc53415c36940c2e7748a63db91704e43fdf0bd4ebbfc8ee3"}

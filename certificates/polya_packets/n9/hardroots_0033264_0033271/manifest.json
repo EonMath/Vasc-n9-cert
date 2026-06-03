@@ -1,0 +1,37 @@
+{
+  "complete_certificate": false,
+  "coverage": {
+    "coverage_type": "named_hard_root_packet",
+    "full_root_count": 40320,
+    "n": 9,
+    "root_count": 6,
+    "root_ids": [
+      "root_0033264",
+      "root_0033265",
+      "root_0033266",
+      "root_0033268",
+      "root_0033270",
+      "root_0033271"
+    ],
+    "source_batch": "batch_0033216_0033280"
+  },
+  "full_problem_certificate": false,
+  "leaf_rule": {
+    "amgm_midpoint_circuit_polya_leaf": "After the stated Polya multiplier, subtract exact two-term midpoint AM-GM circuits and verify the residual is coefficientwise nonnegative.",
+    "polya_power": 8
+  },
+  "n": 9,
+  "packet_counts": {
+    "amgm_midpoint_leaf_count": 6,
+    "root_count": 6,
+    "unresolved_count": 0
+  },
+  "root_universe": {
+    "fixed_maximum_variable": "x1",
+    "root_count": 40320,
+    "root_stream_hash": "1220c3ba5079b87fee67beeaa6eb7f4b3afc4760f61c99112e35a53434d2063e",
+    "type": "cyclic_maximum_then_all_orderings_stream"
+  },
+  "target_polynomial_hash": "01ceef10be5b583af2611ccab06bf2ae04480e59e1db0ac9283f7e4a677ce72d",
+  "tool": "vasc_hardroot_packet_v1"
+}

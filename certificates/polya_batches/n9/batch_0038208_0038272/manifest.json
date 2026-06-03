@@ -1,0 +1,36 @@
+{
+  "complete_certificate": false,
+  "coverage": {
+    "coverage_type": "lexicographic_root_range_batch",
+    "covered_root_count": 64,
+    "end_exclusive": 38272,
+    "full_root_count": 40320,
+    "missing_root_count": 40256,
+    "n": 9,
+    "start": 38208
+  },
+  "leaf_rule": {
+    "coefficient_leaf": "pullback has nonnegative integer coefficients",
+    "max_polya_power": 8,
+    "polya_multiplier_leaf": "(sum y_i)^k times pullback has nonnegative integer coefficients; sum y_i is positive off the origin"
+  },
+  "n": 9,
+  "pilot_counts": {
+    "batch_root_count": 64,
+    "coefficient_leaf_count": 64,
+    "polya_leaf_count": 0,
+    "unresolved_count": 0
+  },
+  "root_universe": {
+    "fixed_maximum_variable": "x1",
+    "root_count": 40320,
+    "root_record_schema": {
+      "perm": "ordering of x2..xn by decreasing value",
+      "root_index": "lexicographic index"
+    },
+    "root_stream_hash": "1220c3ba5079b87fee67beeaa6eb7f4b3afc4760f61c99112e35a53434d2063e",
+    "type": "cyclic_maximum_then_all_orderings_stream"
+  },
+  "target_polynomial_hash": "01ceef10be5b583af2611ccab06bf2ae04480e59e1db0ac9283f7e4a677ce72d",
+  "tool": "vasc_polya_batch_v1"
+}
