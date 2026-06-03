@@ -7,4 +7,4 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.urls]
-Repository = "https://github.com/Reed-qiuu/vasc-n9-cert"
+Repository = "https://github.com/EonMath/Vasc-n9-cert"
