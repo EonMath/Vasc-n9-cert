@@ -1,0 +1,10 @@
+[project]
+name = "vasc-n9-cert"
+version = "0.1.0"
+description = "Verification and reproducibility artifact for the Vasc n=9 finite certificate"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/Reed-qiuu/vasc-n9-cert"
