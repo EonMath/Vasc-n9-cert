@@ -10,6 +10,7 @@ workspaces require ``--resume``.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -18,6 +19,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +45,7 @@ PRODUCER_FILES = [
 
 COMMAND_LOG: list[dict] = []
 HASH_CHECK_LOG: list[dict] = []
+LOG_LOCK = threading.Lock()
 
 
 def read_json(path: Path):
@@ -93,7 +96,8 @@ def run(cmd: list[str], build_workspace: Path, dry_run: bool = False) -> None:
     }
     if dry_run:
         event["ended_at_utc"] = utc_now()
-        COMMAND_LOG.append(event)
+        with LOG_LOCK:
+            COMMAND_LOG.append(event)
         return
     started = time.time()
     try:
@@ -105,7 +109,8 @@ def run(cmd: list[str], build_workspace: Path, dry_run: bool = False) -> None:
             "elapsed_seconds": round(time.time() - started, 3),
             "ended_at_utc": utc_now(),
         })
-        COMMAND_LOG.append(event)
+        with LOG_LOCK:
+            COMMAND_LOG.append(event)
         raise
     event.update({
         "status": "PASS",
@@ -113,7 +118,25 @@ def run(cmd: list[str], build_workspace: Path, dry_run: bool = False) -> None:
         "elapsed_seconds": round(time.time() - started, 3),
         "ended_at_utc": utc_now(),
     })
-    COMMAND_LOG.append(event)
+    with LOG_LOCK:
+        COMMAND_LOG.append(event)
+
+
+def run_parallel(label: str, items: list[dict], jobs: int, worker) -> None:
+    if jobs <= 1 or len(items) <= 1:
+        for index, item in enumerate(items, start=1):
+            worker(item)
+            print(f"{label}: completed {index}/{len(items)}", flush=True)
+        return
+
+    print(f"{label}: running {len(items)} tasks with {jobs} workers", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
+        futures = {executor.submit(worker, item): item for item in items}
+        completed = 0
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
+            completed += 1
+            print(f"{label}: completed {completed}/{len(items)}", flush=True)
 
 
 def load_plan(path: Path) -> dict:
@@ -392,6 +415,8 @@ def print_plan_summary(plan: dict, args: argparse.Namespace) -> None:
     print(f"  hardroot packets: {plan['hardroot_packet_count']}")
     print(f"  final packet: {plan['final_packet_id']}")
     print(f"  build workspace: {args.build_workspace}")
+    print(f"  raw batch workers: {args.jobs}")
+    print(f"  hardroot workers: {args.hardroot_jobs}")
     print("")
     print("Smoke test:")
     print(
@@ -403,6 +428,10 @@ def print_plan_summary(plan: dict, args: argparse.Namespace) -> None:
                 "smoke",
                 "--build-workspace",
                 str(args.build_workspace),
+                "--jobs",
+                str(args.jobs),
+                "--hardroot-jobs",
+                str(args.hardroot_jobs),
             ]
         )
     )
@@ -417,6 +446,10 @@ def print_plan_summary(plan: dict, args: argparse.Namespace) -> None:
                 "full",
                 "--build-workspace",
                 str(args.build_workspace),
+                "--jobs",
+                str(args.jobs),
+                "--hardroot-jobs",
+                str(args.hardroot_jobs),
             ]
         )
     )
@@ -428,6 +461,18 @@ def main() -> None:
     parser.add_argument("--build-workspace", type=Path, default=DEFAULT_BUILD_WORKSPACE)
     parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN)
     parser.add_argument("--sha256sums", type=Path, default=DEFAULT_SHA256SUMS)
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=min(4, os.cpu_count() or 1),
+        help="parallel workers for full rebuild raw batches; use 1 for serial execution",
+    )
+    parser.add_argument(
+        "--hardroot-jobs",
+        type=int,
+        default=None,
+        help="parallel workers for AM-GM hardroot packets; defaults to min(2, --jobs)",
+    )
     parser.add_argument("--resume", action="store_true", help="continue in an existing build workspace")
     parser.add_argument("--dry-run", action="store_true", help="print commands without running them")
     parser.add_argument(
@@ -464,9 +509,17 @@ def main() -> None:
 
     plan = load_plan(args.plan)
     args.build_workspace = args.build_workspace.resolve()
+    if args.jobs < 1:
+        raise SystemExit("--jobs must be at least 1")
+    if args.hardroot_jobs is None:
+        args.hardroot_jobs = min(2, args.jobs)
+    if args.hardroot_jobs < 1:
+        raise SystemExit("--hardroot-jobs must be at least 1")
     log["inputs"] = {
         "mode": args.mode,
         "build_workspace": str(args.build_workspace),
+        "jobs": args.jobs,
+        "hardroot_jobs": args.hardroot_jobs,
         "plan": str(args.plan.resolve()),
         "plan_sha256": sha256_file(args.plan),
         "sha256sums": str(args.sha256sums.resolve()),
@@ -510,10 +563,18 @@ def main() -> None:
             log["status"] = "PASS"
             return
 
-        for batch in plan["batches"]:
-            generate_batch(batch, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
-        for packet in plan["hardroot_packets"]:
-            generate_hardroot_packet(packet, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
+        run_parallel(
+            "raw batches",
+            plan["batches"],
+            args.jobs,
+            lambda batch: generate_batch(batch, args.build_workspace, resume=args.resume, dry_run=args.dry_run),
+        )
+        run_parallel(
+            "hardroot packets",
+            plan["hardroot_packets"],
+            args.hardroot_jobs,
+            lambda packet: generate_hardroot_packet(packet, args.build_workspace, resume=args.resume, dry_run=args.dry_run),
+        )
         generate_overlay(plan, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
 
         if not args.skip_hash_check and not args.dry_run:

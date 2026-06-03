@@ -18,6 +18,10 @@ the minimal checker does not.
 - The independent checker uses only the Python standard library.
 - The rebuild driver uses only the Python standard library, but the full
   rebuild is long-running and CPU-intensive.
+- The full rebuild can run independent raw batches with `--jobs` and AM-GM
+  hardroot packets with `--hardroot-jobs`.  The defaults are at most 4 raw-batch
+  workers and at most 2 hardroot workers; reduce them if memory pressure is
+  high.
 - `sha256sum` is optional for manual integrity checks; the rebuild driver has
   its own Python SHA256 comparison against `SHA256SUMS`.
 - Use a fresh build workspace with enough disk space for regenerated
@@ -89,6 +93,8 @@ certificate file listed in `SHA256SUMS`.
 python3 tools/rebuild_n9_certificate_from_sources.py \
   --mode full \
   --build-workspace /path/to/fresh/vasc_n9_rebuild \
+  --jobs 4 \
+  --hardroot-jobs 2 \
   --run-log logs/rebuild_full.json
 ```
 
@@ -99,11 +105,19 @@ python3 tools/rebuild_n9_certificate_from_sources.py \
   --mode full \
   --resume \
   --build-workspace /path/to/fresh/vasc_n9_rebuild \
+  --jobs 4 \
+  --hardroot-jobs 2 \
   --run-log logs/rebuild_full_resume.json
 ```
 
 The rebuild driver is non-destructive: it refuses to use a non-empty build
 workspace unless `--resume` is supplied.
+During full rebuilds, raw Polya batches are generated and checked in parallel
+first, then AM-GM hardroot packets are generated and checked in parallel, and
+the final overlay packet is built serially after its inputs are complete.
+Use `--jobs 1 --hardroot-jobs 1` for a serial rebuild.  The raw batch producer
+writes JSONL rows as each root is processed, instead of holding the complete
+batch row lists in memory.
 
 The rebuild run log records the frozen plan hash, `SHA256SUMS` hash, selected
 mode/options, every producer/checker subprocess command and return code, hash

@@ -54,6 +54,10 @@ def write_jsonl(path: Path, rows: list[object]) -> None:
             handle.write(canonical_json(row) + "\n")
 
 
+def write_jsonl_row(handle, row: object) -> None:
+    handle.write(canonical_json(row) + "\n")
+
+
 def read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -150,51 +154,50 @@ def produce(args: argparse.Namespace) -> None:
     p_poly = base.vasc_polynomial(n)
     started = time.time()
 
-    roots_rows: list[object] = []
-    tree_rows: list[object] = []
-    leaves_rows: list[object] = []
-    unresolved_rows: list[object] = []
     counts = {
         "coefficient_leaf_count": 0,
         "polya_leaf_count": 0,
         "unresolved_count": 0,
     }
 
-    for root_index, perm in iter_indexed_perms(n, start, count):
-        root_id = f"root_{root_index:07d}"
-        root_record, pullback = base.root_record(n, root_id, perm, p_poly)
-        pullback_hash = root_record["pullback_hash"]
-        pullback_summary = root_record["coefficient_summary"]
-        status, leaf, unresolved = make_leaf(n, root_id, pullback_hash, pullback_summary, pullback, max_k)
+    with (
+        (target_dir / "roots.jsonl").open("w", encoding="utf-8") as roots_handle,
+        (target_dir / "tree.jsonl").open("w", encoding="utf-8") as tree_handle,
+        (target_dir / "leaves.jsonl").open("w", encoding="utf-8") as leaves_handle,
+        (target_dir / "unresolved.jsonl").open("w", encoding="utf-8") as unresolved_handle,
+    ):
+        for root_index, perm in iter_indexed_perms(n, start, count):
+            root_id = f"root_{root_index:07d}"
+            root_record, pullback = base.root_record(n, root_id, perm, p_poly)
+            pullback_hash = root_record["pullback_hash"]
+            pullback_summary = root_record["coefficient_summary"]
+            status, leaf, unresolved = make_leaf(n, root_id, pullback_hash, pullback_summary, pullback, max_k)
 
-        if status == "coefficient_leaf":
-            counts["coefficient_leaf_count"] += 1
-            leaves_rows.append(leaf)
-        elif status == "polya_multiplier_leaf":
-            counts["polya_leaf_count"] += 1
-            leaves_rows.append(leaf)
-        else:
-            counts["unresolved_count"] += 1
-            unresolved["perm"] = list(perm)
-            unresolved_rows.append(unresolved)
+            if status == "coefficient_leaf":
+                counts["coefficient_leaf_count"] += 1
+                write_jsonl_row(leaves_handle, leaf)
+            elif status == "polya_multiplier_leaf":
+                counts["polya_leaf_count"] += 1
+                write_jsonl_row(leaves_handle, leaf)
+            else:
+                counts["unresolved_count"] += 1
+                unresolved["perm"] = list(perm)
+                write_jsonl_row(unresolved_handle, unresolved)
 
-        roots_rows.append({"n": n, "perm": list(perm), "root_id": root_id, "root_index": root_index})
-        tree_rows.append({
-            "certificate_status": status,
-            "depth": 0,
-            "node_id": root_id,
-            "parent_id": None,
-            "perm": list(perm),
-            "pullback_hash": pullback_hash,
-            "pullback_summary": pullback_summary,
-            "root_id": root_id,
-            "root_index": root_index,
-        })
+            write_jsonl_row(roots_handle, {"n": n, "perm": list(perm), "root_id": root_id, "root_index": root_index})
+            write_jsonl_row(tree_handle, {
+                "certificate_status": status,
+                "depth": 0,
+                "node_id": root_id,
+                "parent_id": None,
+                "perm": list(perm),
+                "pullback_hash": pullback_hash,
+                "pullback_summary": pullback_summary,
+                "root_id": root_id,
+                "root_index": root_index,
+            })
 
-    write_jsonl(target_dir / "roots.jsonl", roots_rows)
-    write_jsonl(target_dir / "tree.jsonl", tree_rows)
-    write_jsonl(target_dir / "leaves.jsonl", leaves_rows)
-    write_jsonl(target_dir / "unresolved.jsonl", unresolved_rows)
+            del pullback
 
     root_universe = {
         "fixed_maximum_variable": "x1",
