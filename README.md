@@ -54,6 +54,17 @@ From this directory, run:
 python3 tools/verify_n9_certificate_minimal.py
 ```
 
+To save a structured run record for the paper artifact, add `--run-log`:
+
+```bash
+python3 tools/verify_n9_certificate_minimal.py \
+  --run-log logs/verify_full.json
+```
+
+This writes `logs/verify_full.json` and `logs/verify_full.json.sha256`.  The
+JSON record includes the command, Python/platform information, key certificate
+file hashes, root counts, elapsed time, and final PASS/FAIL status.
+
 If your environment uses `uv`, the equivalent command is:
 
 ```bash
@@ -79,6 +90,15 @@ full run:
 ```bash
 python3 tools/verify_n9_certificate_minimal.py --limit 32 --quiet
 python3 tools/verify_n9_certificate_minimal.py --root-index 5952 --quiet
+```
+
+The same run-log option can be used for smoke tests:
+
+```bash
+python3 tools/verify_n9_certificate_minimal.py \
+  --limit 32 \
+  --quiet \
+  --run-log logs/verify_limit32.json
 ```
 
 The first command checks the first 32 roots. The second checks one AM-GM

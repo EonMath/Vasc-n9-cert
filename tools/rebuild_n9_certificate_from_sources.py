@@ -13,10 +13,13 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import shlex
 import shutil
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -38,6 +41,9 @@ PRODUCER_FILES = [
     "vasc_range_plan.py",
 ]
 
+COMMAND_LOG: list[dict] = []
+HASH_CHECK_LOG: list[dict] = []
+
 
 def read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
@@ -49,7 +55,24 @@ def write_json(path: Path, obj) -> None:
 
 
 def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def write_run_log(path: Path, log: dict) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(log, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
+    path.write_text(text, encoding="utf-8")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    path.with_suffix(path.suffix + ".sha256").write_text(f"{digest}  {path.name}\n", encoding="utf-8")
+    return digest
 
 
 def shell_cmd(cmd: list[str]) -> str:
@@ -60,9 +83,37 @@ def run(cmd: list[str], build_workspace: Path, dry_run: bool = False) -> None:
     env = os.environ.copy()
     env["VASC_WORKSPACE"] = str(build_workspace)
     print(shell_cmd(cmd), flush=True)
+    event = {
+        "command": cmd,
+        "command_text": shell_cmd(cmd),
+        "cwd": str(build_workspace),
+        "dry_run": dry_run,
+        "started_at_utc": utc_now(),
+        "status": "DRY_RUN" if dry_run else "RUNNING",
+    }
     if dry_run:
+        event["ended_at_utc"] = utc_now()
+        COMMAND_LOG.append(event)
         return
-    subprocess.run(cmd, cwd=build_workspace, env=env, check=True)
+    started = time.time()
+    try:
+        completed = subprocess.run(cmd, cwd=build_workspace, env=env, check=True)
+    except subprocess.CalledProcessError as exc:
+        event.update({
+            "status": "FAIL",
+            "returncode": exc.returncode,
+            "elapsed_seconds": round(time.time() - started, 3),
+            "ended_at_utc": utc_now(),
+        })
+        COMMAND_LOG.append(event)
+        raise
+    event.update({
+        "status": "PASS",
+        "returncode": completed.returncode,
+        "elapsed_seconds": round(time.time() - started, 3),
+        "ended_at_utc": utc_now(),
+    })
+    COMMAND_LOG.append(event)
 
 
 def load_plan(path: Path) -> dict:
@@ -292,6 +343,15 @@ def compare_certificate_hashes(
         checked += 1
 
     print(f"checked {checked} listed certificate hashes", flush=True)
+    summary = {
+        "sha256sums": str(sha256sums.resolve()),
+        "sha256sums_sha256": sha256_file(sha256sums),
+        "prefixes": prefixes,
+        "checked": checked,
+        "failure_count": len(failures),
+        "failures_preview": failures[:20],
+    }
+    HASH_CHECK_LOG.append(summary)
     if failures:
         for failure in failures[:20]:
             print(failure, flush=True)
@@ -302,6 +362,7 @@ def compare_certificate_hashes(
 
 def run_independent_verifier(build_workspace: Path, limit: int | None, dry_run: bool) -> None:
     script = build_workspace / "tools" / "verify_n9_certificate_minimal.py"
+    verifier_log = build_workspace / "logs" / "independent_verifier.json"
     cmd = [
         sys.executable,
         str(script),
@@ -310,10 +371,19 @@ def run_independent_verifier(build_workspace: Path, limit: int | None, dry_run: 
         "--packet-id",
         FINAL_PACKET_ID,
         "--quiet",
+        "--run-log",
+        str(verifier_log),
     ]
     if limit is not None:
         cmd.extend(["--limit", str(limit)])
     run(cmd, build_workspace, dry_run=dry_run)
+    if not dry_run and verifier_log.exists():
+        HASH_CHECK_LOG.append({
+            "kind": "independent_verifier_run_log",
+            "path": str(verifier_log),
+            "run_log_sha256": sha256_file(verifier_log),
+            "sidecar": str(verifier_log.with_suffix(verifier_log.suffix + ".sha256")),
+        })
 
 
 def print_plan_summary(plan: dict, args: argparse.Namespace) -> None:
@@ -376,42 +446,95 @@ def main() -> None:
         help="after full rebuild, run the independent minimal checker; this can take a day or more",
     )
     parser.add_argument("--verifier-limit", type=int, default=None)
+    parser.add_argument("--run-log", type=Path, help="write a structured JSON run log and a .sha256 sidecar")
     args = parser.parse_args()
+
+    log = {
+        "schema": "vasc_n9_rebuild_run_v1",
+        "tool": "rebuild_n9_certificate_from_sources.py",
+        "command": sys.argv,
+        "started_at_utc": utc_now(),
+        "environment": {
+            "python_version": sys.version,
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+        },
+        "status": "RUNNING",
+    }
 
     plan = load_plan(args.plan)
     args.build_workspace = args.build_workspace.resolve()
+    log["inputs"] = {
+        "mode": args.mode,
+        "build_workspace": str(args.build_workspace),
+        "plan": str(args.plan.resolve()),
+        "plan_sha256": sha256_file(args.plan),
+        "sha256sums": str(args.sha256sums.resolve()),
+        "sha256sums_sha256": sha256_file(args.sha256sums) if args.sha256sums.exists() else None,
+        "producer_source_dir": str(PRODUCER_SOURCE_DIR),
+        "rebuild_driver_sha256": sha256_file(Path(__file__).resolve()),
+        "resume": args.resume,
+        "dry_run": args.dry_run,
+        "include_hardroot_smoke": args.include_hardroot_smoke,
+        "skip_hash_check": args.skip_hash_check,
+        "run_independent_verifier": args.run_independent_verifier,
+        "verifier_limit": args.verifier_limit,
+    }
+    log["plan_summary"] = {
+        "batch_count": plan["batch_count"],
+        "hardroot_packet_count": plan["hardroot_packet_count"],
+        "final_packet_id": plan["final_packet_id"],
+    }
 
-    if args.mode == "plan":
-        print_plan_summary(plan, args)
-        return
+    try:
+        if args.mode == "plan":
+            print_plan_summary(plan, args)
+            log["status"] = "PASS"
+            return
 
-    prepare_build_workspace(args.build_workspace, args.plan, args.resume)
+        prepare_build_workspace(args.build_workspace, args.plan, args.resume)
 
-    if args.mode == "smoke":
-        first_batch = plan["batches"][0]
-        generate_batch(first_batch, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
-        generate_smoke_overlay(first_batch, args.build_workspace, dry_run=args.dry_run)
-        prefixes = [f"certificates/polya_batches/n9/{first_batch['batch_dir']}/"]
-        if args.include_hardroot_smoke:
-            first_packet = select_hardroot_smoke_packet(plan)
-            source_batch = next(row for row in plan["batches"] if row["batch_dir"] == first_packet["source_batch"])
-            generate_batch(source_batch, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
-            generate_hardroot_packet(first_packet, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
-            prefixes.append(f"certificates/polya_packets/n9/{first_packet['packet_id']}/")
+        if args.mode == "smoke":
+            first_batch = plan["batches"][0]
+            generate_batch(first_batch, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
+            generate_smoke_overlay(first_batch, args.build_workspace, dry_run=args.dry_run)
+            prefixes = [f"certificates/polya_batches/n9/{first_batch['batch_dir']}/"]
+            if args.include_hardroot_smoke:
+                first_packet = select_hardroot_smoke_packet(plan)
+                source_batch = next(row for row in plan["batches"] if row["batch_dir"] == first_packet["source_batch"])
+                generate_batch(source_batch, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
+                generate_hardroot_packet(first_packet, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
+                prefixes.append(f"certificates/polya_packets/n9/{first_packet['packet_id']}/")
+            if not args.skip_hash_check and not args.dry_run:
+                compare_certificate_hashes(args.build_workspace, args.sha256sums, prefixes=prefixes)
+            log["status"] = "PASS"
+            return
+
+        for batch in plan["batches"]:
+            generate_batch(batch, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
+        for packet in plan["hardroot_packets"]:
+            generate_hardroot_packet(packet, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
+        generate_overlay(plan, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
+
         if not args.skip_hash_check and not args.dry_run:
-            compare_certificate_hashes(args.build_workspace, args.sha256sums, prefixes=prefixes)
-        return
-
-    for batch in plan["batches"]:
-        generate_batch(batch, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
-    for packet in plan["hardroot_packets"]:
-        generate_hardroot_packet(packet, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
-    generate_overlay(plan, args.build_workspace, resume=args.resume, dry_run=args.dry_run)
-
-    if not args.skip_hash_check and not args.dry_run:
-        compare_certificate_hashes(args.build_workspace, args.sha256sums)
-    if args.run_independent_verifier:
-        run_independent_verifier(args.build_workspace, args.verifier_limit, args.dry_run)
+            compare_certificate_hashes(args.build_workspace, args.sha256sums)
+        if args.run_independent_verifier:
+            run_independent_verifier(args.build_workspace, args.verifier_limit, args.dry_run)
+        log["status"] = "PASS"
+    except BaseException as exc:
+        log.update({
+            "status": "FAIL",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        })
+        raise
+    finally:
+        log["ended_at_utc"] = utc_now()
+        log["commands"] = COMMAND_LOG
+        log["hash_checks"] = HASH_CHECK_LOG
+        if args.run_log:
+            digest = write_run_log(args.run_log, log)
+            print(f"run_log_sha256 {digest}", flush=True)
 
 
 if __name__ == "__main__":

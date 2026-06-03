@@ -52,13 +52,16 @@ Use a fresh output directory:
 ```bash
 python3 tools/rebuild_n9_certificate_from_sources.py \
   --mode smoke \
-  --build-workspace /tmp/vasc_n9_rebuild_smoke
+  --build-workspace /tmp/vasc_n9_rebuild_smoke \
+  --run-log logs/rebuild_smoke.json
 ```
 
 This regenerates the first raw Polya batch, builds a small smoke overlay, and
 compares the regenerated listed certificate files against `SHA256SUMS`.
 The smoke rebuild succeeds if the command exits with status 0 and prints a
 successful listed-certificate hash comparison.
+The `--run-log` option writes a structured JSON record and a
+`logs/rebuild_smoke.json.sha256` sidecar.
 
 To also exercise one AM-GM hardroot overlay packet:
 
@@ -66,7 +69,8 @@ To also exercise one AM-GM hardroot overlay packet:
 python3 tools/rebuild_n9_certificate_from_sources.py \
   --mode smoke \
   --include-hardroot-smoke \
-  --build-workspace /tmp/vasc_n9_rebuild_smoke_hardroot
+  --build-workspace /tmp/vasc_n9_rebuild_smoke_hardroot \
+  --run-log logs/rebuild_smoke_hardroot.json
 ```
 
 The hardroot smoke chooses a small hardroot overlay packet from the frozen plan,
@@ -84,7 +88,8 @@ certificate file listed in `SHA256SUMS`.
 ```bash
 python3 tools/rebuild_n9_certificate_from_sources.py \
   --mode full \
-  --build-workspace /path/to/fresh/vasc_n9_rebuild
+  --build-workspace /path/to/fresh/vasc_n9_rebuild \
+  --run-log logs/rebuild_full.json
 ```
 
 If a run is interrupted, resume it with:
@@ -93,11 +98,17 @@ If a run is interrupted, resume it with:
 python3 tools/rebuild_n9_certificate_from_sources.py \
   --mode full \
   --resume \
-  --build-workspace /path/to/fresh/vasc_n9_rebuild
+  --build-workspace /path/to/fresh/vasc_n9_rebuild \
+  --run-log logs/rebuild_full_resume.json
 ```
 
 The rebuild driver is non-destructive: it refuses to use a non-empty build
 workspace unless `--resume` is supplied.
+
+The rebuild run log records the frozen plan hash, `SHA256SUMS` hash, selected
+mode/options, every producer/checker subprocess command and return code, hash
+comparison summary, and final PASS/FAIL status.  The `.sha256` sidecar is the
+hash to cite when archiving a completed run log.
 
 ## Optional Independent Verification After Rebuild
 
@@ -109,7 +120,8 @@ python3 tools/rebuild_n9_certificate_from_sources.py \
   --mode full \
   --resume \
   --run-independent-verifier \
-  --build-workspace /path/to/fresh/vasc_n9_rebuild
+  --build-workspace /path/to/fresh/vasc_n9_rebuild \
+  --run-log logs/rebuild_full_with_verifier.json
 ```
 
 The independent full verification is single-threaded and can take about
@@ -122,8 +134,12 @@ python3 tools/rebuild_n9_certificate_from_sources.py \
   --resume \
   --run-independent-verifier \
   --verifier-limit 32 \
-  --build-workspace /path/to/fresh/vasc_n9_rebuild
+  --build-workspace /path/to/fresh/vasc_n9_rebuild \
+  --run-log logs/rebuild_full_with_verifier_limit32.json
 ```
+
+When `--run-independent-verifier` is used, the rebuild driver also asks the
+child verifier to write its own run log under the selected build workspace.
 
 ## Portability Note
 

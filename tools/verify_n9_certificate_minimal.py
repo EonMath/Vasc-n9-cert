@@ -21,8 +21,11 @@ import hashlib
 import itertools
 import json
 import math
+import platform
+import sys
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -44,6 +47,27 @@ def read_json(path: Path):
 
 def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def write_run_log(path: Path, log: dict) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(log, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
+    path.write_text(text, encoding="utf-8")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    path.with_suffix(path.suffix + ".sha256").write_text(f"{digest}  {path.name}\n", encoding="utf-8")
+    return digest
 
 
 def poly_to_terms(poly: Poly) -> list[dict[str, object]]:
@@ -342,10 +366,11 @@ def check_amgm_leaf(root_id: str, pullback: Poly, leaf: dict, packet_product: di
     expect(residual_summary["negative_count"] == 0, f"{root_id}: AM-GM residual has negative coefficients")
 
 
-def verify(args: argparse.Namespace) -> None:
+def verify(args: argparse.Namespace) -> dict:
     workspace = args.workspace.resolve()
     n = 9
     packet_dir = workspace / "certificates" / "polya_packets" / f"n{n}" / args.packet_id
+    sha256sums = workspace / "SHA256SUMS"
     packet_manifest = read_json(packet_dir / "manifest.json")
     root_status = read_jsonl(packet_dir / "root_status.jsonl")
     expect(packet_manifest["n"] == n, "packet n mismatch")
@@ -448,8 +473,26 @@ def verify(args: argparse.Namespace) -> None:
         expect(expected_counts["root_count"] == sum(counts.values()), "packet root count does not equal status counts")
 
     elapsed = time.time() - started
+    summary = {
+        "checked_roots": sum(counts.values()),
+        "counts": counts,
+        "elapsed_seconds": round(elapsed, 3),
+        "full_run": full_run,
+        "n": n,
+        "packet_id": args.packet_id,
+        "selected_root_indices": indices if args.root_index else None,
+        "limit": args.limit,
+        "workspace": str(workspace),
+        "files": {
+            "checker_source_sha256": sha256_file(Path(__file__).resolve()),
+            "packet_manifest_sha256": sha256_file(packet_dir / "manifest.json"),
+            "packet_root_status_sha256": sha256_file(packet_dir / "root_status.jsonl"),
+            "sha256sums_sha256": sha256_file(sha256sums) if sha256sums.exists() else None,
+        },
+    }
     print("PASS")
-    print(json.dumps({"checked_roots": sum(counts.values()), "counts": counts, "elapsed_seconds": round(elapsed, 3)}, sort_keys=True))
+    print(json.dumps({"checked_roots": summary["checked_roots"], "counts": counts, "elapsed_seconds": summary["elapsed_seconds"]}, sort_keys=True))
+    return summary
 
 
 def parse_args() -> argparse.Namespace:
@@ -461,11 +504,45 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root-index", type=int, action="append", help="debug option: verify one selected root index")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--progress-seconds", type=float, default=30.0)
+    parser.add_argument("--run-log", type=Path, help="write a structured JSON run log and a .sha256 sidecar")
     return parser.parse_args()
 
 
 def main() -> None:
-    verify(parse_args())
+    args = parse_args()
+    log = {
+        "schema": "vasc_n9_independent_verifier_run_v1",
+        "tool": "verify_n9_certificate_minimal.py",
+        "command": sys.argv,
+        "started_at_utc": utc_now(),
+        "environment": {
+            "python_version": sys.version,
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+        },
+        "status": "RUNNING",
+    }
+    try:
+        result = verify(args)
+    except BaseException as exc:
+        log.update({
+            "status": "FAIL",
+            "ended_at_utc": utc_now(),
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        })
+        if args.run_log:
+            digest = write_run_log(args.run_log, log)
+            print(f"run_log_sha256 {digest}", flush=True)
+        raise
+    log.update({
+        "status": "PASS",
+        "ended_at_utc": utc_now(),
+        "result": result,
+    })
+    if args.run_log:
+        digest = write_run_log(args.run_log, log)
+        print(f"run_log_sha256 {digest}", flush=True)
 
 
 if __name__ == "__main__":

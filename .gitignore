@@ -18,9 +18,8 @@ build/
 dist/
 *.egg-info/
 
-# Local rebuild workspaces and logs
+# Local rebuild workspaces
 _rebuild_workspace/
-logs/
 
 # Editor and OS files
 .DS_Store
