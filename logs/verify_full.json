@@ -1,0 +1,39 @@
+{
+  "command": [
+    "tools/verify_n9_certificate_minimal.py",
+    "--run-log",
+    "logs/verify_full.json"
+  ],
+  "ended_at_utc": "2026-06-03T23:21:30Z",
+  "environment": {
+    "machine": "x86_64",
+    "platform": "Linux-5.15.0-140-generic-x86_64-with-glibc2.35",
+    "python_version": "3.13.5 | packaged by Anaconda, Inc. | (main, Jun 12 2025, 16:09:02) [GCC 11.2.0]"
+  },
+  "result": {
+    "checked_roots": 40320,
+    "counts": {
+      "amgm_midpoint_overlay_leaf_count": 1269,
+      "coefficient_leaf_count": 36815,
+      "polya_leaf_count": 2236,
+      "unresolved_count": 0
+    },
+    "elapsed_seconds": 48737.306,
+    "files": {
+      "checker_source_sha256": "fbdc6d5f8f51f6f368556e99ba81b8374c4b3e7804b92e832b67f14b8de21a77",
+      "packet_manifest_sha256": "26d70df70971f9492ebaec0e1e83518c2e93ae19a35235c1ede6bcc1ca8075b9",
+      "packet_root_status_sha256": "cfccbea3047856265dfee32aa78f6245f8811f54bca9f37964a557c9e2ee9cd5",
+      "sha256sums_sha256": "f5636d5ad45205285cff4f375a2eca1075172247bcbf0adfbecf858120ce2243"
+    },
+    "full_run": true,
+    "limit": null,
+    "n": 9,
+    "packet_id": "prefix_0000000_0040320_with_hardroots",
+    "selected_root_indices": null,
+    "workspace": "<artifact-root>"
+  },
+  "schema": "vasc_n9_independent_verifier_run_v1",
+  "started_at_utc": "2026-06-03T09:49:11Z",
+  "status": "PASS",
+  "tool": "verify_n9_certificate_minimal.py"
+}
